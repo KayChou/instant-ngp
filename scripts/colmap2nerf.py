@@ -163,6 +163,8 @@ if __name__ == "__main__":
 	TEXT_FOLDER = args.text
 	OUT_PATH = args.out
 	print(f"outputting to {OUT_PATH}...")
+
+	# ================== read intrinsic =========================
 	with open(os.path.join(TEXT_FOLDER,"cameras.txt"), "r") as f:
 		angle_x = math.pi / 2
 		for line in f:
@@ -216,6 +218,7 @@ if __name__ == "__main__":
 
 	print(f"camera:\n\tres={w,h}\n\tcenter={cx,cy}\n\tfocal={fl_x,fl_y}\n\tfov={fovx,fovy}\n\tk={k1,k2} p={p1,p2} ")
 
+	# ================== read extrinsic =========================
 	with open(os.path.join(TEXT_FOLDER,"images.txt"), "r") as f:
 		i = 0
 		bottom = np.array([0.0, 0.0, 0.0, 1.0]).reshape([1, 4])
@@ -257,7 +260,7 @@ if __name__ == "__main__":
 				tvec = np.array(tuple(map(float, elems[5:8])))
 				R = qvec2rotmat(-qvec)
 				t = tvec.reshape([3,1])
-				m = np.concatenate([np.concatenate([R, t], 1), bottom], 0)
+				m = np.concatenate([np.concatenate([R, t], 1), bottom], 0) #(4, 4)
 				c2w = np.linalg.inv(m)
 				if not args.keep_colmap_coords:
 					c2w[0:3,2] *= -1 # flip the y and z axis
@@ -272,8 +275,8 @@ if __name__ == "__main__":
 	nframes = len(out["frames"])
 
 	if args.keep_colmap_coords:
-		flip_mat = np.array([
-			[1, 0, 0, 0],
+		flip_mat = np.array([ # 沿着 x 轴翻转
+ 			[1, 0, 0, 0],
 			[0, -1, 0, 0],
 			[0, 0, -1, 0],
 			[0, 0, 0, 1]

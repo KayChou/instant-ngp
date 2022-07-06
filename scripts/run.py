@@ -58,6 +58,7 @@ def parse_args():
 	parser.add_argument("--height", "--screenshot_h", type=int, default=0, help="Resolution height of GUI and screenshots.")
 
 	parser.add_argument("--gui", action="store_true", help="Run the testbed GUI interactively.")
+	parser.add_argument("--render_depth", action="store_true", help="render depth")
 	parser.add_argument("--train", action="store_true", help="If the GUI is enabled, controls whether training starts immediately.")
 	parser.add_argument("--n_steps", type=int, default=-1, help="Number of steps to train for before quitting.")
 	parser.add_argument("--second_window", action="store_true", help="Open a second window containing a copy of the main output.")
@@ -113,6 +114,10 @@ if __name__ == "__main__":
 	testbed = ngp.Testbed(mode)
 	testbed.nerf.sharpen = float(args.sharpen)
 	testbed.exposure = args.exposure
+
+	if args.render_depth:
+		testbed.render_mode = ngp.Depth # 设置输出深度图
+
 	if mode == ngp.TestbedMode.Sdf:
 		testbed.tonemap_curve = ngp.TonemapCurve.ACES
 
@@ -326,12 +331,26 @@ if __name__ == "__main__":
 
 			# Some NeRF datasets lack the .png suffix in the dataset metadata
 			if not os.path.splitext(outname)[1]:
-				outname = outname + ".png"
+				if not args.render_depth:
+					outname = outname + ".png"
+				else:
+					outname = outname + ".bin"
 
-			print(f"rendering {outname}")
 			image = testbed.render(args.width or int(ref_transforms["w"]), args.height or int(ref_transforms["h"]), args.screenshot_spp, True)
 			os.makedirs(os.path.dirname(outname), exist_ok=True)
-			write_image(outname, image)
+
+			if not args.render_depth:
+				print(f"rendering==> {outname}")
+				write_image(outname, image)
+			else:
+				print(f"rendering==> {outname}")
+				imageio.imsave(outname, image[:, :, 0]) # only save one channel
+				# if os.path.splitext(outname)[1] == ".jpg" or os.path.splitext(outname)[1] == ".png":
+				# 	outname = os.path.splitext(outname)[0] + ".bin"
+				# print(f"rendering==> {outname}")
+				# write_depth_bin(outname, image[:, :, 0])
+
+
 	elif args.screenshot_dir:
 		outname = os.path.join(args.screenshot_dir, args.scene + "_" + network_stem)
 		print(f"Rendering {outname}.png")

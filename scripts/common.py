@@ -177,6 +177,11 @@ def write_image(file, img, quality=95):
 			img = linear_to_srgb(img)
 		write_image_imageio(file, img, quality)
 
+def write_depth_bin(file, img):
+	if os.path.splitext(file)[1] == ".bin":
+		with open(file, "wb") as f:
+			f.write(img.astype(np.float32).tobytes())
+
 def trim(error, skip=0.000001):
 	error = np.sort(error.flatten())
 	size = error.size
