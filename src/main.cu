@@ -95,6 +95,14 @@ int main(int argc, char** argv) {
 		"Resolution height of the GUI.",
 		{"height"},
 	};
+#if DEBUG_TIME
+	ValueFlag<uint32_t> max_iter{
+		parser,
+		"max_iter",
+		"max_iter",
+		{"max_iter"},
+	};
+#endif
 
 	Flag version_flag{
 		parser,
@@ -172,7 +180,14 @@ int main(int argc, char** argv) {
 				tlog::error() << "Scene path " << scene_path << " does not exist.";
 				return 1;
 			}
+#if DEBUG_TIME
+			testbed.data_load.tick();
+#endif
 			testbed.load_training_data(scene_path.str());
+#if DEBUG_TIME
+			cudaDeviceSynchronize();
+			testbed.data_load.tock();
+#endif
 		}
 
 		std::string mode_str;
@@ -225,12 +240,39 @@ int main(int argc, char** argv) {
 			testbed.init_window(width_flag ? get(width_flag) : 1920, height_flag ? get(height_flag) : 1080);
 		}
 
+#if not DEBUG_TIME
 		// Render/training loop
 		while (testbed.frame()) {
 			if (!gui) {
 				tlog::info() << "iteration=" << testbed.m_training_step << " loss=" << testbed.m_loss_scalar.val();
 			}
 		}
+#endif
+
+#if DEBUG_TIME
+		// Render/training loop
+		while (testbed.m_training_step < (uint32_t)get(max_iter)) {
+			testbed.render_one_frame.tick();
+			testbed.frame();
+			if (!gui) {
+				tlog::info() << "iteration=" << testbed.m_training_step << " loss=" << testbed.m_loss_scalar.val();
+			} 
+			cudaDeviceSynchronize();
+			testbed.render_one_frame.tock();
+		}
+		testbed.data_load.print_log();
+		testbed.create_network.print_log();
+		testbed.render_one_frame.print_log();
+		testbed.sample_pts.print_log();
+		testbed.inference_latency.print_log();
+		// testbed.m_nerf_network->encoding_latency.print_log();
+		// testbed.m_nerf_network->MLP_latency.print_log();
+		testbed.compute_loss_latency.print_log();
+		testbed.forward_latency.print_log();
+		testbed.backward_latency.print_log();
+		testbed.optimize_latency.print_log();
+#endif
+
 	} catch (const exception& e) {
 		tlog::error() << "Uncaught exception: " << e.what();
 		return 1;

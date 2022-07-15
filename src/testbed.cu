@@ -145,9 +145,15 @@ void Testbed::reload_network_from_file(const std::string& network_config_path) {
 	if (!network_config_path.empty()) {
 		m_network_config_path = network_config_path;
 	}
-
+#if DEBUG_TIME
+	this->create_network.tick();
+#endif
 	m_network_config = load_network_config(m_network_config_path);
 	reset_network();
+#if DEBUG_TIME
+	cudaDeviceSynchronize();
+	this->create_network.tock();
+#endif
 }
 
 void Testbed::reload_network_from_json(const json& json, const std::string& config_base_path) {

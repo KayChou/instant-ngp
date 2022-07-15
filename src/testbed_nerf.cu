@@ -2806,8 +2806,14 @@ void Testbed::train_nerf(uint32_t target_batch_size, bool get_loss_scalar, cudaS
 		m_nerf.training.counters_rgb.loss.data(),
 		m_training_stream
 	);
-
+#if DEBUG_TIME
+	this->optimize_latency.tick();
+#endif
 	m_trainer->optimizer_step(stream, LOSS_SCALE);
+#if DEBUG_TIME
+	cudaDeviceSynchronize();
+	this->optimize_latency.tock();
+#endif
 
 	++m_training_step;
 
@@ -3076,7 +3082,9 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, uint32_t n_rays_per_ba
 	bool accumulate_error = true;
 
 	CUDA_CHECK_THROW(cudaMemsetAsync(ray_counter, 0, sizeof(uint32_t), stream));
-
+#if DEBUG_TIME
+	this->sample_pts.tick();
+#endif
 	linear_kernel(generate_training_samples_nerf, 0, stream,
 		n_rays_per_batch,
 		m_aabb,
@@ -3107,18 +3115,30 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, uint32_t n_rays_per_ba
 		m_nerf.training.extra_dims_gpu.data(),
 		m_nerf_network->n_extra_dims()
 	);
+#if DEBUG_TIME
+	cudaDeviceSynchronize();
+	this->sample_pts.tock();
+#endif
 
 	auto hg_enc = dynamic_cast<GridEncoding<network_precision_t>*>(m_encoding.get());
 	if (hg_enc) {
 		hg_enc->set_max_level_gpu(m_max_level_rand_training ? max_level : nullptr);
 	}
-
+#if DEBUG_TIME
+	this->inference_latency.tick();
+#endif
 	m_network->inference_mixed_precision(stream, coords_matrix, rgbsigma_matrix, false);
-
+#if DEBUG_TIME
+	cudaDeviceSynchronize();
+	this->inference_latency.tock();
+#endif
+	
 	if (hg_enc) {
 		hg_enc->set_max_level_gpu(m_max_level_rand_training ? max_level_compacted : nullptr);
 	}
-
+#if DEBUG_TIME
+	this->compute_loss_latency.tick();
+#endif
 	linear_kernel(compute_loss_kernel_train_nerf, 0, stream,
 		n_rays_per_batch,
 		m_aabb,
@@ -3170,6 +3190,10 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, uint32_t n_rays_per_ba
 		m_nerf.training.depth_supervision_lambda,
 		m_nerf.training.near_distance
 	);
+#if DEBUG_TIME
+	cudaDeviceSynchronize();
+	this->compute_loss_latency.tock();
+#endif
 
 	fill_rollover_and_rescale<network_precision_t><<<n_blocks_linear(target_batch_size*padded_output_width), n_threads_linear, 0, stream>>>(
 		target_batch_size, padded_output_width, compacted_counter, dloss_dmlp_out
@@ -3187,8 +3211,20 @@ void Testbed::train_nerf_step(uint32_t target_batch_size, uint32_t n_rays_per_ba
 	GPUMatrix<float> coords_gradient_matrix((float*)coords_gradient, floats_per_coord, target_batch_size);
 
 	{
+#if DEBUG_TIME
+		this->forward_latency.tick();
+#endif
 		auto ctx = m_network->forward(stream, compacted_coords_matrix, &compacted_rgbsigma_matrix, false, prepare_input_gradients);
+#if DEBUG_TIME
+		cudaDeviceSynchronize();
+		this->forward_latency.tock();
+		this->backward_latency.tick();
+#endif
 		m_network->backward(stream, *ctx, compacted_coords_matrix, compacted_rgbsigma_matrix, gradient_matrix, prepare_input_gradients ? &coords_gradient_matrix : nullptr, false, EGradientMode::Overwrite);
+#if DEBUG_TIME
+		cudaDeviceSynchronize();
+		this->backward_latency.tock();
+#endif
 	}
 
 	if (train_extra_dims) {

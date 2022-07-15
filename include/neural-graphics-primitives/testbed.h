@@ -24,6 +24,7 @@
 #include <neural-graphics-primitives/sdf.h>
 #include <neural-graphics-primitives/shared_queue.h>
 #include <neural-graphics-primitives/trainable_buffer.cuh>
+#include <neural-graphics-primitives/lantency_profile.h>
 
 #include <tiny-cuda-nn/cuda_graph.h>
 #include <tiny-cuda-nn/random.h>
@@ -68,6 +69,17 @@ public:
 	void load_training_data(const std::string& data_path);
 	void clear_training_data();
 
+#if DEBUG_TIME
+	Latency_profile data_load = Latency_profile("data_io");
+	Latency_profile create_network = Latency_profile("create_network");
+	Latency_profile render_one_frame = Latency_profile("render_one_frame");
+	Latency_profile sample_pts = Latency_profile("sample_pts");
+	Latency_profile forward_latency = Latency_profile("forward");
+	Latency_profile backward_latency = Latency_profile("backward");
+	Latency_profile inference_latency = Latency_profile("inference");
+	Latency_profile compute_loss_latency = Latency_profile("compute_loss");
+	Latency_profile optimize_latency = Latency_profile("optimize_step");
+#endif
 	using distance_fun_t = std::function<void(uint32_t, const tcnn::GPUMemory<Eigen::Vector3f>&, tcnn::GPUMemory<float>&, cudaStream_t)>;
 	using normals_fun_t = std::function<void(uint32_t, const tcnn::GPUMemory<Eigen::Vector3f>&, tcnn::GPUMemory<Eigen::Vector3f>&, cudaStream_t)>;
 
@@ -818,7 +830,9 @@ public:
 	float m_histo_scale = 1.f;
 
 	uint32_t m_training_step = 0;
-	uint32_t m_training_batch_size = 1 << 18;
+	// uint32_t m_training_batch_size = 16000;
+	uint32_t m_training_batch_size = 4096;
+	// uint32_t m_training_batch_size = 1 << 18;
 	Ema m_loss_scalar = {EEmaType::Time, 100};
 	std::vector<float> m_loss_graph = std::vector<float>(256, 0.0f);
 	size_t m_loss_graph_samples = 0;

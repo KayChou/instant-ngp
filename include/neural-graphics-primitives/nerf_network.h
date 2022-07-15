@@ -25,6 +25,7 @@
 #include <tiny-cuda-nn/network.h>
 
 #include <tiny-cuda-nn/network_with_input_encoding.h>
+#include <neural-graphics-primitives/lantency_profile.h>
 
 NGP_NAMESPACE_BEGIN
 
@@ -76,6 +77,11 @@ __global__ void add_density_gradient(
 template <typename T>
 class NerfNetwork : public tcnn::Network<float, T> {
 public:
+#if DEBUG_TIME
+	Latency_profile encoding_latency = Latency_profile("encoding");
+	Latency_profile MLP_latency = Latency_profile("MLP");
+#endif
+public:
 	using json = nlohmann::json;
 
 	NerfNetwork(uint32_t n_pos_dims, uint32_t n_dir_dims, uint32_t n_extra_dims, uint32_t dir_offset, const json& pos_encoding, const json& dir_encoding, const json& density_network, const json& rgb_network) : m_n_pos_dims{n_pos_dims}, m_n_dir_dims{n_dir_dims}, m_dir_offset{dir_offset}, m_n_extra_dims{n_extra_dims} {
@@ -98,7 +104,10 @@ public:
 		m_rgb_network.reset(tcnn::create_network<T>(local_rgb_network_config));
 	}
 
-	virtual ~NerfNetwork() { }
+	virtual ~NerfNetwork() {
+		this->encoding_latency.print_log();
+		this->MLP_latency.print_log();
+	}
 
 	void inference_mixed_precision_impl(cudaStream_t stream, const tcnn::GPUMatrixDynamic<float>& input, tcnn::GPUMatrixDynamic<T>& output, bool use_inference_params = true) override {
 		uint32_t batch_size = input.n();
@@ -108,6 +117,9 @@ public:
 		tcnn::GPUMatrixDynamic<T> density_network_output = rgb_network_input.slice_rows(0, m_density_network->padded_output_width());
 		tcnn::GPUMatrixDynamic<T> rgb_network_output{output.data(), m_rgb_network->padded_output_width(), batch_size, output.layout()};
 
+#if DEBUG_TIME
+		encoding_latency.tick();
+#endif
 		m_pos_encoding->inference_mixed_precision(
 			stream,
 			input.slice_rows(0, m_pos_encoding->input_width()),
@@ -115,8 +127,14 @@ public:
 			use_inference_params
 		);
 
-		m_density_network->inference_mixed_precision(stream, density_network_input, density_network_output, use_inference_params);
+#if DEBUG_TIME
+		cudaDeviceSynchronize();
+		encoding_latency.tock();
+#endif
 
+#if DEBUG_TIME
+		MLP_latency.tick();
+#endif
 		auto dir_out = rgb_network_input.slice_rows(m_density_network->padded_output_width(), m_dir_encoding->padded_output_width());
 		m_dir_encoding->inference_mixed_precision(
 			stream,
@@ -125,8 +143,13 @@ public:
 			use_inference_params
 		);
 
-		m_rgb_network->inference_mixed_precision(stream, rgb_network_input, rgb_network_output, use_inference_params);
+		m_density_network->inference_mixed_precision(stream, density_network_input, density_network_output, use_inference_params);
 
+		m_rgb_network->inference_mixed_precision(stream, rgb_network_input, rgb_network_output, use_inference_params);
+#if DEBUG_TIME
+		cudaDeviceSynchronize();
+		MLP_latency.tock();
+#endif
 		tcnn::linear_kernel(extract_density<T>, 0, stream,
 			batch_size,
 			density_network_output.layout() == tcnn::AoS ? density_network_output.stride() : 1,
