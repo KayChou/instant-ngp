@@ -105,8 +105,10 @@ public:
 	}
 
 	virtual ~NerfNetwork() {
+#if DEBUG_TIME
 		this->encoding_latency.print_log();
 		this->MLP_latency.print_log();
+#endif
 	}
 
 	void inference_mixed_precision_impl(cudaStream_t stream, const tcnn::GPUMatrixDynamic<float>& input, tcnn::GPUMatrixDynamic<T>& output, bool use_inference_params = true) override {
